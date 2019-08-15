@@ -90,13 +90,114 @@ class Player {
 
 class Ray {
     constructor(rayAngle) {
-        this.rayAngle = rayAngle;
+        //kepp the rayAngle in the range from 0 to 2PI. The Angel will be positive
+        this.rayAngle = normalizeAngel(rayAngle);
+        this.wallHitX = 0; // the ray hits the vertical position
+        this.wallHitY = 0; // the ray hits the horizontal position 
+        this.distance = 0; // distance between the player and the collision with the wall
+        this.wasHitVertical = false; //hit with vertical or horizontal wall line
+
+        this.isRayFacingDown = this.rayAngle > 0 && this.rayAngle < Math.PI;
+        this.isRayFacingUp = !this.isRayFacingDown;
+
+        this.isRayFacingRight = this.rayAngle < Math.PI / 2 || this.rayAngle > 1.5 * Math.PI;
+        this.isRayFacingLeft = !this.isRayFacingRight;
     }
     render() {
         stroke("rgba(255, 0, 0, 0.3)");
-        line(player.x, player.y, 
-            player.x + Math.cos(this.rayAngle) * 30,
-            player.y + Math.sin(this.rayAngle) * 30);
+        line(player.x, player.y, this.wallHitX, this.wallHitY);
+    } 
+    cast(columnId) {
+        var xIntercept, yIntercept;
+        var xStep, yStep;
+        var foundHorzWallHit = false;
+        var horzWallHitX = 0;
+        var horzWallHitY = 0;
+        //handle the horizontal intersaction
+
+        // find the y-coordinate of the closest horizonral grid intersaction
+        yIntercept = Math.floor(player.y / TILE_SIZE) * TILE_SIZE;
+        yIntercept += this.isRayFacingUp  ?  0 : TILE_SIZE;
+        // find the x-coordinate of the closest horizonral grid intersaction
+        xIntercept = player.x + (yIntercept - player.y) / Math.tan(this.rayAngle);
+
+        //calculate steps
+        yStep = TILE_SIZE;
+        yStep *= this.isRayFacingUp ? -1 : 1;
+        xStep = yStep / Math.tan(this.rayAngle);
+        xStep *= (this.isRayFacingLeft && xStep > 0) ? -1 : 1;
+        xStep *= (this.isRayFacingRight && xStep < 0) ? -1 : 1;
+
+        var nextHorzTouchX = xIntercept;
+        var nextHorzTouchY = yIntercept;
+        if (this.isRayFacingUp)
+            nextHorzTouchY--;
+        // increment xStep and yStep until we find a wall
+        while (nextHorzTouchX >= 0 && nextHorzTouchX <= WINDOW_WIDTH && nextHorzTouchY >= 0 && nextHorzTouchY <= WINDOW_HEIGHT) {
+            if (grid.wallCollapse(nextHorzTouchX, nextHorzTouchY)) {
+                foundHorzWallHit = true;
+                horzWallHitX = nextHorzTouchX;
+                horzWallHitY = nextHorzTouchY;
+                //remove later; for testing purpose only
+                //stroke("red");
+                //line(player.x, player.y, wallHitX, wallHitY);
+                break;
+            } else {
+                nextHorzTouchX += xStep;
+                nextHorzTouchY += yStep;
+            }
+        }
+
+        //handle the vertical intersaction
+
+        var foundVertWallHit = false;
+        var vertWallHitX = 0;
+        var vertWallHitY = 0;
+        // find the x-coordinate of the closest vertical grid intersaction
+        xIntercept = Math.floor(player.x / TILE_SIZE) * TILE_SIZE;
+        xIntercept += this.isRayFacingLeft  ?  0 : TILE_SIZE;
+        // find the y-coordinate of the closest vertical grid intersaction
+        yIntercept = player.y + (xIntercept - player.x) * Math.tan(this.rayAngle);
+
+        //calculate steps
+        xStep = TILE_SIZE;
+        xStep *= this.isRayFacingLeft ? -1 : 1;
+
+        yStep = xStep * Math.tan(this.rayAngle);
+        yStep *= (this.isRayFacingUp && yStep > 0) ? -1 : 1;
+        yStep *= (this.isRayFacingDown && yStep < 0) ? -1 : 1;
+
+        var nextVertTouchX = xIntercept;
+        var nextVertTouchY = yIntercept;
+        if (this.isRayFacingLeft)
+            nextVertTouchX--;
+        // increment xStep and yStep until we find a wall
+        while (nextVertTouchX >= 0 && nextVertTouchX <= WINDOW_WIDTH && nextVertTouchY >= 0 && nextVertTouchY <= WINDOW_HEIGHT) {
+            if (grid.wallCollapse(nextVertTouchX, nextVertTouchY)) {
+                foundVertWallHit = true;
+                vertWallHitX = nextVertTouchX;
+                vertWallHitY = nextVertTouchY;
+                //remove later; for testing purpose only
+                //stroke("red");
+                //line(player.x, player.y, wallHitX, wallHitY);
+                break;
+            } else {
+                nextVertTouchX += xStep;
+                nextVertTouchY += yStep;
+            }
+        }
+        //calculate both the horizontal and vertical distance and choose the smallest value
+        var horzHitDistance = (foundHorzWallHit) 
+                                ? distanceBetweenPoints(player.x, player.y, horzWallHitX. horzWallHitY)
+                                : Number.MAX_VALUE;
+        var vertHitDistance = (foundVertWallHit) 
+                                ? distanceBetweenPoints(player.x, player.y, vertWallHitX. vertWallHitY)
+                                : Number.MAX_VALUE;
+        //stores the smallest of the distances
+        this.wallHitX = (horzHitDistance < vertHitDistance) ? horzWallHitX : vertWallHitX;
+        this.wallHitY = (horzHitDistance < vertHitDistance) ? horzWallHitY : vertWallHitY;
+        this.distance = (horzHitDistance < vertHitDistance) ? horzHitDistance : vertHitDistance;
+        this.wasHitVertical = (vertHitDistance < horzHitDistance);
     }
 }
 
@@ -135,15 +236,27 @@ function castAllRays() {
     var rayAngle = player.rotationAngle - (FOV_ANGLE / 2);
     rays = [];
     //loop all columns casting the rays
-    //for (var i = 0; i < NUM_RAYS; ++i) {
-        for (var i = 0; i < 2; ++i) {
+    for (var i = 0; i < NUM_RAYS; ++i) {
+        //for (var i = 0; i < 2; ++i) {
         var ray = new Ray(rayAngle);
         //raycasting
-
+        ray.cast(columnId);
         rays.push(ray);
         rayAngle += FOV_ANGLE / NUM_RAYS;
         columnId++;
     }
+}
+
+function distanceBetweenPoints(xStart, yStart, xEnd, yEnd) {
+    return Math.sqrt((xEnd - xStart) * (xEnd - xStart) + (yEnd - yStart) * (yEnd - yStart));
+}
+
+function normalizeAngel(angle) {
+    angle = angle % (2 * Math.PI);
+    if (angle < 0) {
+        angle += 2 * Math.PI;
+    }
+    return angle;
 }
 
 function setup() {
@@ -165,5 +278,9 @@ function draw() {
         ray.render();
     }
     player.render();
+
+    //remove later; for testing purpose only
+    //castAllRays();
+
 }
 
